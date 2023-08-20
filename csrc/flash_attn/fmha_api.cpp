@@ -254,7 +254,7 @@ mha_fwd(const at::Tensor &q,         // total_q x num_heads x head_size, total_q
 
     int blocksize_c = head_size > 64 ? 128 : 256;
 
-    blocksize_c = 64;
+    //blocksize_c = 64;
 
 
     //py::print("head_size=%2d, blocksize_c=%2d\n", head_size, blocksize_c);
