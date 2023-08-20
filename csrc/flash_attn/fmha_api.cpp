@@ -582,7 +582,7 @@ mha_fwd_block(const at::Tensor &q,         // total_q x num_heads x head_size, t
     CHECK_SHAPE(cu_seqlens_q, batch_size + 1);
     CHECK_SHAPE(cu_seqlens_k, batch_size + 1);
 
-    int max_seqlen_k = ((max_seqlen_k_ + 256 - 1) / 256) * 256;
+    int max_seqlen_k = ((max_seqlen_k_ + 128 - 1) / 256) * 256;
     if( max_seqlen_k <= 256 ) {
         max_seqlen_k = 256;
     }
@@ -735,13 +735,13 @@ mha_bwd_block(const at::Tensor &dout,  // total x num_heads, x head_size
     CHECK_SHAPE(cu_seqlens_q, batch_size + 1);
     CHECK_SHAPE(cu_seqlens_k, batch_size + 1);
 
-    int max_seqlen_k = ((max_seqlen_k_ + 256 - 1) / 256) * 256;
-    if( max_seqlen_k <= 256 ) {
-        max_seqlen_k = 256;
+    int max_seqlen_k = ((max_seqlen_k_ + 128 - 1) / 128) * 128;
+    if( max_seqlen_k <= 128 ) {
+        max_seqlen_k = 128;
     }
     int max_seqlen_q = ((max_seqlen_q_ + 16 - 1) / 16) * 16;
-    bool loop = max_seqlen_k > 256;
-    CHECK_SHAPE(blockmask, max_seqlen_k / 256, max_seqlen_q / 16);
+    bool loop = max_seqlen_k > 128;
+    CHECK_SHAPE(blockmask, max_seqlen_k / 128, max_seqlen_q / 16);
 
     // It's possible the softmax_lse_ from the fwd has a different length since blocksize_c could be different.
     auto softmax_lse = softmax_lse_.index({torch::indexing::Slice(), torch::indexing::Slice(), torch::indexing::Slice(torch::indexing::None, max_seqlen_q)}).contiguous();
