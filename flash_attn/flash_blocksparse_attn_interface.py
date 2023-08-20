@@ -40,25 +40,83 @@ def convert_blockmask(blockmask, causal):
     return nonzero_idx.T.contiguous().to(dtype=torch.int32)
 
 
+# follow https://github.com/Dao-AILab/flash-attention/blob/6cc7342575393568f32c69aba6365e93d7701cbb/flash_attn/flash_attn_interface.py#L39
+# how to call unpacked from packed kqv
+
+#def _flash_attn_forward(q, k, v, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, dropout_p,
+#                        softmax_scale, causal, return_softmax):
+
+#std::vector<at::Tensor>
+#mha_fwd_block(const at::Tensor &q,         // total_q x num_heads x head_size, total := \sum_{i=0}^{b} s_i
+#              const at::Tensor &k,         // total_k x num_heads x head_size, total_k := \sum_{i=0}^{b} s_i
+#              const at::Tensor &v,         // total_k x num_heads x head_size, total_k := \sum_{i=0}^{b} s_i
+#              const at::Tensor &cu_seqlens_q,  // b+1
+#              const at::Tensor &cu_seqlens_k,  // b+1
+#              const at::Tensor &blockmask,   // (seqlen / 256, seqlen / 16)
+#              const int max_seqlen_q_,
+#              const int max_seqlen_k_,
+#              const float p_dropout,
+#              const float softmax_scale,
+#              const bool is_causal,
+#              const bool return_softmax,
+#              c10::optional<at::Generator> gen_) {
+
 def _flash_blocksparse_attn_forward(qkv, cu_seqlens, blockmask, dropout_p, max_s, softmax_scale,
                                      causal, return_softmax):
-    context, softmax_lse, *rest = flash_attn_cuda.fwd_block(qkv, cu_seqlens, blockmask, dropout_p,
-                                                             max_s, softmax_scale, causal,
-                                                             return_softmax, None)
+    context, softmax_lse, *rest = flash_attn_cuda.fwd_block(
+        qkv[:, 0], qkv[:, 1], qkv[:, 2], cu_seqlens, cu_seqlens,
+        blockmask, max_s, max_s, dropout_p,
+        softmax_scale, causal,
+        return_softmax, None)
     # if context.isnan().any() or softmax_lse.isnan().any():
     #     breakpoint()
     S_dmask = rest[0] if return_softmax else None
     return context, softmax_lse, S_dmask
 
 
+#std::vector<at::Tensor>
+#mha_bwd_block(const at::Tensor &dout,  // total x num_heads, x head_size
+#              const at::Tensor &q,   // total_q x num_heads x head_size, total_q := \sum_{i=0}^{b} s_i
+#              const at::Tensor &k,   // total_k x num_heads x head_size, total_k := \sum_{i=0}^{b} s_i
+#              const at::Tensor &v,   // total_k x num_heads x head_size, total_k := \sum_{i=0}^{b} s_i
+#              const at::Tensor &out,   // total_q x num_heads x head_size
+#              const at::Tensor &softmax_lse_,     // b x h x s softmax logsumexp
+#              at::Tensor &dq,   // total_q x num_heads x head_size, total_q := \sum_{i=0}^{b} s_i
+#              at::Tensor &dk,   // total_k x num_heads x head_size, total_k := \sum_{i=0}^{b} s_i
+#              at::Tensor &dv,   // total_k x num_heads x head_size, total_k := \sum_{i=0}^{b} s_i
+#              const at::Tensor &cu_seqlens_q,  // b+1
+#              const at::Tensor &cu_seqlens_k,  // b+1
+#              const at::Tensor &blockmask,   // (seqlen / 256, seqlen / 16)
+#              const int max_seqlen_q_,
+#              const int max_seqlen_k_,          // max sequence length to choose the kernel
+#              const float p_dropout,         // probability to drop
+#              const float softmax_scale,
+#              const bool is_causal,
+#              c10::optional<at::Generator> gen_
 def _flash_blocksparse_attn_backward(dout, qkv, out, S_dmask, softmax_lse, cu_seqlens, blockmask,
                                       dropout_p, max_s, softmax_scale, causal):
-    dqkv, dp, softmax_d = flash_attn_cuda.bwd_block(dout, qkv, out, S_dmask, softmax_lse, cu_seqlens,
-                                                     blockmask, dropout_p, softmax_scale, max_s,
-                                                     causal, None)
+
+    # follow https://github.com/Dao-AILab/flash-attention/blob/6cc7342575393568f32c69aba6365e93d7701cbb/flash_attn/flash_attn_interface.py#L59
+    dqkv = torch.empty_like(qkv)
+
+    #dqkv, dp, softmax_d =
+
+    flash_attn_cuda.bwd_block(dout,
+                              qkv[:, 0], qkv[:, 1], qkv[:, 2], #qkv,
+                              out,
+                              #S_dmask,
+                              softmax_lse,
+                              dqkv[:, 0], dqkv[:, 1], dqkv[:, 2],
+                              cu_seqlens, cu_seqlens,
+                              blockmask,
+                              max_s, max_s,
+                              dropout_p, softmax_scale,
+                              #max_s,
+                              causal, None)
     # if dqkv.isnan().any() or softmax_d.isnan().any():
     #     breakpoint()
     return dqkv
+
 
 
 class FlashBlocksparseAttnFun(torch.autograd.Function):
@@ -140,3 +198,4 @@ def flash_blocksparse_attn_func(qkv, cu_seqlens, blockmask, dropout_p, max_s, so
     if convert_mask:
         blockmask = convert_blockmask(blockmask, causal=causal)
     return func.apply(qkv, cu_seqlens, blockmask, dropout_p, max_s, softmax_scale, causal)
+
