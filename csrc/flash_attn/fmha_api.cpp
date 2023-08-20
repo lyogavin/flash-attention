@@ -253,6 +253,11 @@ mha_fwd(const at::Tensor &q,         // total_q x num_heads x head_size, total_q
     CHECK_SHAPE(cu_seqlens_k, batch_size + 1);
 
     int blocksize_c = head_size > 64 ? 128 : 256;
+
+
+    printf("head_size=%2d, blocksize_c=%2d\n",
+        head_size, blocksize_c);
+
     // Need to round max_seqlen_k to multiples of blocksize_c
     int max_seqlen_k = ((max_seqlen_k_ + blocksize_c - 1) / blocksize_c) * blocksize_c;
     if( max_seqlen_k_ <= 128 ) {
